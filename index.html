@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Controle de Cheques</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+    }
+  </script>
+  <!-- Supabase JS Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    /* Estilos exclusivos para Impressão / Salvar PDF */
+    @media print {
+      body {
+        background: #ffffff !important;
+        color: #000000 !important;
+      }
+      body * {
+        visibility: hidden !important;
+      }
+      #relatorioResultado, #relatorioResultado * {
+        visibility: visible !important;
+      }
+      #relatorioResultado {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .no-print, header, nav, button, #toast, #modalEditar, form, .flex.space-x-2 {
+        display: none !important;
+      }
+      #conteudoRelatorio {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+      }
+      #conteudoRelatorio div, 
+      #conteudoRelatorio span, 
+      #conteudoRelatorio h2, 
+      #conteudoRelatorio h3 {
+        background-color: transparent !important;
+        color: #000000 !important;
+        border-color: #d1d5db !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-100 min-h-screen transition-colors duration-200">
+
+  <!-- Mensagem Toast -->
+  <div id="toast" class="fixed top-5 right-5 hidden z-50 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg font-medium"></div>
+
+  <!-- MODAL DE EDIÇÃO -->
+  <div id="modalEditar" class="fixed inset-0 bg-black bg-opacity-50 hidden z-40 flex justify-center items-center p-4 no-print">
+    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-gray-300 dark:border-gray-700">
+      <div class="flex justify-between items-center mb-4 border-b pb-2 dark:border-gray-700">
+        <h2 class="text-xl font-bold">Editar Cheque</h2>
+        <button onclick="fecharModalEdit()" class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-bold text-xl">&times;</button>
+      </div>
+
+      <div class="flex justify-between items-center mb-4 bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+        <span class="text-xs text-gray-500 dark:text-gray-300">Campos protegidos por senha.</span>
+        <button type="button" onclick="desbloquearCamposEdicao()" class="text-xs bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded font-semibold transition-colors">
+          🔓 Desbloquear Campos
+        </button>
+      </div>
+
+      <form id="formEditCheque" onsubmit="salvarEdicao(event)" class="space-y-4">
+        <input type="hidden" id="editId">
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Empresa</label>
+          <select id="editEmpresa" required disabled class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600 disabled:opacity-60 disabled:cursor-not-allowed">
+            <option value="BR">BR</option>
+            <option value="Soldi">Soldi</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Emitente</label>
+          <input type="text" id="editEmitente" required disabled class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600 disabled:opacity-60 disabled:cursor-not-allowed">
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">Valor R$</label>
+            <input type="text" id="editValor" inputmode="numeric" oninput="mascaraMoeda(this)" required disabled class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600 font-mono text-lg disabled:opacity-60 disabled:cursor-not-allowed">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">AG</label>
+            <select id="editAgencia" required disabled class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600 disabled:opacity-60 disabled:cursor-not-allowed">
+              <option value="0244">0244</option>
+              <option value="1840">1840</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Nº do Cheque</label>
+            <input type="text" id="editNumeroCheque" inputmode="numeric" oninput="this.value = this.value.replace(/[^0-9.,]/g, '')" required disabled class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600 disabled:opacity-60 disabled:cursor-not-allowed">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">Banco</label>
+            <select id="editBanco" required disabled class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600 disabled:opacity-60 disabled:cursor-not-allowed">
+              <option value="001 - Banco do Brasil">001 - Banco do Brasil</option>
+              <option value="237 - Bradesco">237 - Bradesco</option>
+              <option value="104 - Caixa Econômica Federal">104 - Caixa Econômica Federal</option>
+              <option value="341 - Itaú Unibanco">341 - Itaú Unibanco</option>
+              <option value="033 - Santander">033 - Santander</option>
+              <option value="748 - Sicredi">748 - Sicredi</option>
+              <option value="756 - Sicoob">756 - Sicoob</option>
+              <option value="041 - Banrisul">041 - Banrisul</option>
+              <option value="077 - Banco Inter">077 - Banco Inter</option>
+              <option value="260 - Nubank">260 - Nubank</option>
+              <option value="Outro">Outro Banco</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Data Depósito</label>
+            <input type="date" id="editDataDeposito" required disabled class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600 disabled:opacity-60 disabled:cursor-not-allowed">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Status</label>
+          <select id="editStatus" onchange="toggleStatusCamposEdit()" required class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+            <option value="Buscar">Buscar</option>
+            <option value="Buscado">Buscado</option>
+            <option value="Devolvido">Devolvido</option>
+            <option value="Liquidado">Liquidado</option>
+          </select>
+        </div>
+
+        <!-- Campo Dinâmico Edit: Buscado -->
+        <div id="editCampoBuscado" class="hidden">
+          <label class="block text-sm font-medium mb-1">Data que foi Buscado</label>
+          <input type="date" id="editDataBuscado" class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+        </div>
+
+        <!-- Campos Dinâmicos Edit: Devolução -->
+        <div id="editCamposDevolucao" class="hidden space-y-4 border-t border-gray-300 dark:border-gray-700 pt-4">
+          <h3 class="font-semibold text-lg">Informações de Devolução</h3>
+          
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium mb-1">Dev 1 - Alínea</label>
+              <select id="editDev1Alinea" class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+                <option value="">Selecione a Alínea</option>
+                <option value="11 - Devolvido 1ª vez (sem fundos)">11 - Devolvido 1ª vez (sem fundos)</option>
+                <option value="12 - Devolvido 2ª vez (sem fundos)">12 - Devolvido 2ª vez (sem fundos)</option>
+                <option value="13 - Conta encerrada">13 - Conta encerrada</option>
+                <option value="14 - Prática espúria">14 - Prática espúria</option>
+                <option value="21 - Sustação ou oposição ao pagamento">21 - Sustação ou oposição ao pagamento</option>
+                <option value="22 - Divergência ou insuficiência de assinatura">22 - Divergência/Insuficiência de assinatura</option>
+                <option value="25 - Cancelamento de formulário">25 - Cancelamento de formulário</option>
+                <option value="28 - Cheque roubado ou furtado">28 - Cheque roubado ou furtado</option>
+                <option value="31 - Erro formal de preenchimento">31 - Erro formal de preenchimento</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Dev 1 - Data</label>
+              <input type="date" id="editDev1Data" class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium mb-1">Dev 2 - Alínea</label>
+              <select id="editDev2Alinea" class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+                <option value="">Selecione a Alínea (se houver)</option>
+                <option value="11 - Devolvido 1ª vez (sem fundos)">11 - Devolvido 1ª vez (sem fundos)</option>
+                <option value="12 - Devolvido 2ª vez (sem fundos)">12 - Devolvido 2ª vez (sem fundos)</option>
+                <option value="13 - Conta encerrada">13 - Conta encerrada</option>
+                <option value="21 - Sustação ou oposição ao pagamento">21 - Sustação ou oposição ao pagamento</option>
+                <option value="22 - Divergência de assinatura">22 - Divergência de assinatura</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Dev 2 - Data</label>
+              <input type="date" id="editDev2Data" class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+            </div>
+          </div>
+        </div>
+
+        <div class="flex justify-end space-x-3 pt-4 border-t dark:border-gray-700">
+          <button type="button" onclick="fecharModalEdit()" class="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg">Cancelar</button>
+          <button type="submit" class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg">Salvar Alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <div class="max-w-4xl mx-auto p-4 sm:p-6">
+    <div class="flex justify-between items-center mb-6 border-b border-gray-300 dark:border-gray-700 pb-4 no-print">
+      <h1 class="text-2xl font-bold">Gerenciamento de Cheques</h1>
+      <button id="themeToggle" type="button" onclick="alternarTema()" class="bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 p-2 rounded-lg text-sm font-semibold hover:bg-gray-300 dark:hover:bg-gray-600 border border-gray-400 dark:border-gray-600">
+        🌙 / ☀️ Alternar Tema
+      </button>
+    </div>
+
+    <!-- Navegação por Abas -->
+    <div class="flex space-x-2 mb-6 no-print">
+      <button id="tabCadastrar" type="button" onclick="switchTab('cadastrar')" class="flex-1 py-3 font-semibold text-center rounded-lg bg-blue-600 text-white shadow">
+        Cadastrar Cheque
+      </button>
+      <button id="tabRelatorio" type="button" onclick="switchTab('relatorio')" class="flex-1 py-3 font-semibold text-center rounded-lg bg-gray-300 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-400 dark:hover:bg-gray-700">
+        Gerar Relatórios
+      </button>
+    </div>
+
+    <!-- ABA 1: CADASTRO DE CHEQUE -->
+    <div id="sectionCadastrar" class="block bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 space-y-4 no-print">
+      <form id="formCheque" onsubmit="salvarCheque(event)" class="space-y-4">
+        
+        <div>
+          <label class="block text-sm font-medium mb-1">Empresa</label>
+          <select id="empresa" required class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+            <option value="" disabled selected>Selecione a Empresa</option>
+            <option value="BR">BR</option>
+            <option value="Soldi">Soldi</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Emitente</label>
+          <input type="text" id="emitente" placeholder="Nome do emitente" required class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">Valor R$</label>
+            <input type="text" id="valor" placeholder="0,00" inputmode="numeric" oninput="mascaraMoeda(this)" required class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600 font-mono text-lg">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">AG</label>
+            <select id="agencia" required class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+              <option value="" disabled selected>AG</option>
+              <option value="0244">0244</option>
+              <option value="1840">1840</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Nº do Cheque</label>
+            <input type="text" id="numeroCheque" placeholder="Ex: 123456" inputmode="numeric" oninput="this.value = this.value.replace(/[^0-9.,]/g, '')" required class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">Banco</label>
+            <select id="banco" required class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+              <option value="" disabled selected>Selecione o Banco</option>
+              <option value="001 - Banco do Brasil">001 - Banco do Brasil</option>
+              <option value="237 - Bradesco">237 - Bradesco</option>
+              <option value="104 - Caixa Econômica Federal">104 - Caixa Econômica Federal</option>
+              <option value="341 - Itaú Unibanco">341 - Itaú Unibanco</option>
+              <option value="033 - Santander">033 - Santander</option>
+              <option value="748 - Sicredi">748 - Sicredi</option>
+              <option value="756 - Sicoob">756 - Sicoob</option>
+              <option value="041 - Banrisul">041 - Banrisul</option>
+              <option value="077 - Banco Inter">077 - Banco Inter</option>
+              <option value="260 - Nubank">260 - Nubank</option>
+              <option value="Outro">Outro Banco</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Data Depósito</label>
+            <input type="date" id="dataDeposito" required class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+          </div>
+        </div>
+
+        <button type="submit" class="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-colors shadow">
+          Cadastrar Cheque
+        </button>
+      </form>
+    </div>
+
+    <!-- ABA 2: GERAR RELATÓRIOS -->
+    <div id="sectionRelatorio" class="hidden bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 space-y-4">
+      
+      <div class="no-print space-y-4">
+        <h2 class="text-xl font-bold mb-4">Gerar Relatórios</h2>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">Empresa</label>
+            <select id="filterEmpresa" class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+              <option value="TODAS">Todas (BR e Soldi)</option>
+              <option value="BR">BR</option>
+              <option value="Soldi">Soldi</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Status</label>
+            <select id="filterStatus" class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+              <option value="TODOS">Todos os Status</option>
+              <option value="Buscar">Buscar</option>
+              <option value="Buscado">Buscado</option>
+              <option value="Depositado">Depositado</option>
+              <option value="Devolvido">Devolvido</option>
+              <option value="Liquidado">Liquidado</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">Data Inicial</label>
+            <input type="date" id="filterDataInicio" class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Data Final</label>
+            <input type="date" id="filterDataFim" class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Ordenação</label>
+          <select id="filterOrdenacao" class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:border-gray-600">
+            <option value="data_asc">Data mais antiga -> mais recente</option>
+            <option value="data_desc">Data mais recente -> mais antiga</option>
+            <option value="nome_asc">Nome A -> Z</option>
+            <option value="nome_desc">Nome Z -> A</option>
+            <option value="valor_desc">Valor maior -> valor menor</option>
+            <option value="valor_asc">Valor menor -> valor maior</option>
+          </select>
+        </div>
+
+        <button type="button" onclick="gerarRelatorio()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow">
+          Visualizar Relatório
+        </button>
+      </div>
+
+      <!-- Área de Exibição do Relatório -->
+      <div id="relatorioResultado" class="hidden pt-6">
+        <div class="flex justify-end mb-4 no-print">
+          <button type="button" onclick="window.print()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-medium shadow flex items-center gap-2">
+            🖨️ Imprimir / Salvar PDF
+          </button>
+        </div>
+
+        <div id="conteudoRelatorio" class="p-6 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg space-y-6"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://mtqrwhkhbkfhoyqqhoif.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_1sMiC1N5pQdGjFy3EBP3Yw_tq3vEKG5';
+    
+    let supabaseClient = null;
+    if (typeof supabase !== 'undefined') {
+      supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    }
+
+    let chequesGlobal = [];
+
+    function alternarTema() {
+      document.documentElement.classList.toggle('dark');
+    }
+
+    function switchTab(tab) {
+      const sectionCadastrar = document.getElementById('sectionCadastrar');
+      const sectionRelatorio = document.getElementById('sectionRelatorio');
+      const tabCadastrar = document.getElementById('tabCadastrar');
+      const tabRelatorio = document.getElementById('tabRelatorio');
+
+      if (tab === 'cadastrar') {
+        sectionCadastrar.classList.remove('hidden');
+        sectionRelatorio.classList.add('hidden');
+        tabCadastrar.className = "flex-1 py-3 font-semibold text-center rounded-lg bg-blue-600 text-white shadow";
+        tabRelatorio.className = "flex-1 py-3 font-semibold text-center rounded-lg bg-gray-300 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-400 dark:hover:bg-gray-700";
+      } else {
+        sectionCadastrar.classList.add('hidden');
+        sectionRelatorio.classList.remove('hidden');
+        tabRelatorio.className = "flex-1 py-3 font-semibold text-center rounded-lg bg-blue-600 text-white shadow";
+        tabCadastrar.className = "flex-1 py-3 font-semibold text-center rounded-lg bg-gray-300 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-400 dark:hover:bg-gray-700";
+      }
+    }
+
+    function mascaraMoeda(input) {
+      let v = input.value.replace(/\D/g, "");
+      if (!v) { input.value = ""; return; }
+      v = (parseInt(v, 10) / 100).toFixed(2) + "";
+      v = v.replace(".", ",");
+      v = v.replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1.");
+      input.value = v;
+    }
+
+    function toggleStatusCamposEdit() {
+      const status = document.getElementById('editStatus').value;
+      document.getElementById('editCampoBuscado').classList.toggle('hidden', status !== 'Buscado');
+      document.getElementById('editCamposDevolucao').classList.toggle('hidden', status !== 'Devolvido');
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.classList.remove('hidden');
+      setTimeout(() => toast.classList.add('hidden'), 3500);
+    }
+
+    function desbloquearCamposEdicao() {
+      const senha = prompt("Digite a senha para desbloquear a edição dos campos:");
+      if (senha === "123") {
+        const ids = ['editEmpresa', 'editEmitente', 'editValor', 'editAgencia', 'editNumeroCheque', 'editBanco', 'editDataDeposito'];
+        ids.forEach(id => {
+          document.getElementById(id).disabled = false;
+        });
+        showToast("Campos desbloqueados com sucesso!");
+      } else if (senha !== null) {
+        showToast("Senha incorreta!");
+      }
+    }
+
+    function bloquearCamposEdicao() {
+      const ids = ['editEmpresa', 'editEmitente', 'editValor', 'editAgencia', 'editNumeroCheque', 'editBanco', 'editDataDeposito'];
+      ids.forEach(id => {
+        document.getElementById(id).disabled = true;
+      });
+    }
+
+    async function salvarCheque(e) {
+      e.preventDefault();
+      if (!supabaseClient) {
+        showToast("Erro de conexão com o Supabase!");
+        return;
+      }
+
+      const valorTexto = document.getElementById('valor').value.replace(/\./g, '').replace(',', '.');
+      const dados = {
+        empresa: document.getElementById('empresa').value,
+        emitente: document.getElementById('emitente').value,
+        valor: parseFloat(valorTexto),
+        agencia: document.getElementById('agencia').value,
+        numero_cheque: document.getElementById('numeroCheque').value,
+        banco: document.getElementById('banco').value,
+        data_deposito: document.getElementById('dataDeposito').value,
+        status: 'Depositado',
+        data_buscado: null,
+        dev1_alinea: null,
+        dev1_data: null,
+        dev2_alinea: null,
+        dev2_data: null,
+      };
+
+      const { error } = await supabaseClient.from('cheques').insert([dados]);
+      if (error) {
+        showToast("Erro: " + error.message);
+      } else {
+        showToast("Cheque cadastrado com sucesso!");
+        
+        // Limpa explicitamente cada campo do formulário
+        document.getElementById('empresa').selectedIndex = 0;
+        document.getElementById('emitente').value = '';
+        document.getElementById('valor').value = '';
+        document.getElementById('agencia').selectedIndex = 0;
+        document.getElementById('numeroCheque').value = '';
+        document.getElementById('banco').selectedIndex = 0;
+        document.getElementById('dataDeposito').value = '';
+      }
+    }
+
+    async function gerarRelatorio() {
+      const container = document.getElementById('conteudoRelatorio');
+      document.getElementById('relatorioResultado').classList.remove('hidden');
+      container.innerHTML = '<p class="text-center font-medium">Buscando dados...</p>';
+
+      if (!supabaseClient) {
+        container.innerHTML = '<p class="text-center font-medium text-red-500">Erro de conexão com Supabase.</p>';
+        return;
+      }
+
+      const empresa = document.getElementById('filterEmpresa').value;
+      const status = document.getElementById('filterStatus').value;
+      const inicio = document.getElementById('filterDataInicio').value;
+      const fim = document.getElementById('filterDataFim').value;
+      const ordenacao = document.getElementById('filterOrdenacao').value;
+
+      let query = supabaseClient.from('cheques').select('*');
+      if (empresa !== 'TODAS') query = query.eq('empresa', empresa);
+      if (status !== 'TODOS') query = query.eq('status', status);
+      if (inicio) query = query.gte('data_deposito', inicio);
+      if (fim) query = query.lte('data_deposito', fim);
+
+      if (ordenacao === 'data_asc') query = query.order('data_deposito', { ascending: true });
+      if (ordenacao === 'data_desc') query = query.order('data_deposito', { ascending: false });
+      if (ordenacao === 'nome_asc') query = query.order('emitente', { ascending: true });
+      if (ordenacao === 'nome_desc') query = query.order('emitente', { ascending: false });
+      if (ordenacao === 'valor_desc') query = query.order('valor', { ascending: false });
+      if (ordenacao === 'valor_asc') query = query.order('valor', { ascending: true });
+
+      const { data, error } = await query;
+      if (error) {
+        container.innerHTML = `<p class="text-center font-medium text-red-500">Erro no Supabase: ${error.message}</p>`;
+        return;
+      }
+
+      chequesGlobal = data || [];
+      renderizarRelatorio(chequesGlobal);
+    }
+
+    const fmtMoeda = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const fmtData = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '';
+
+    function renderizarRelatorio(cheques) {
+      const container = document.getElementById('conteudoRelatorio');
+      container.innerHTML = '';
+
+      if (!cheques || cheques.length === 0) {
+        container.innerHTML = '<p class="text-center font-medium">Nenhum cheque encontrado para os filtros selecionados.</p>';
+        return;
+      }
+
+      const empresasExistentes = Array.from(new Set(cheques.map(c => c.empresa)));
+      let htmlFinal = '';
+
+      empresasExistentes.forEach(emp => {
+        const chequesEmpresa = cheques.filter(c => c.empresa === emp);
+        if (chequesEmpresa.length === 0) return;
+
+        let empHtml = `<div class="border-b-2 border-blue-500 pb-4 mb-6">
+          <h2 class="text-xl font-bold mb-3 text-blue-600 dark:text-blue-400">EMPRESA: ${emp}</h2>`;
+
+        let totalGeralEmpresa = 0;
+        const statusGrupos = ['Depositado', 'Devolvido', 'Buscar', 'Buscado', 'Liquidado'];
+
+        statusGrupos.forEach(st => {
+          const chequesStatus = chequesEmpresa.filter(c => c.status === st);
+          if (chequesStatus.length === 0) return;
+
+          let somaStatus = 0;
+          empHtml += `<div class="ml-2 sm:ml-4 my-4">
+            <h3 class="font-semibold text-lg border-b border-gray-300 dark:border-gray-700 pb-1 mb-2">${st}s</h3>
+            <div class="space-y-2">`;
+
+          chequesStatus.forEach(c => {
+            somaStatus += Number(c.valor);
+            let detalheExtra = '';
+            if (c.status === 'Devolvido') {
+              if (c.dev1_alinea) detalheExtra += `<br><span class="text-xs text-red-500 font-medium">Dev 1: ${c.dev1_alinea} (${fmtData(c.dev1_data)})</span>`;
+              if (c.dev2_alinea) detalheExtra += `<br><span class="text-xs text-red-500 font-medium">Dev 2: ${c.dev2_alinea} (${fmtData(c.dev2_data)})</span>`;
+            } else if (c.status === 'Buscado' && c.data_buscado) {
+              detalheExtra += `<br><span class="text-xs text-blue-500 font-medium">Buscado em: ${fmtData(c.data_buscado)}</span>`;
+            }
+
+            const agTexto = c.agencia ? `Ag: ${c.agencia} | ` : '';
+
+            empHtml += `
+              <div class="p-3 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 flex justify-between items-start">
+                <div>
+                  <span class="font-medium">${c.emitente}</span> - ${agTexto}Nº: ${c.numero_cheque} (${c.banco})
+                  <br><span class="text-xs text-gray-500">Depósito: ${fmtData(c.data_deposito)}</span>
+                  ${detalheExtra}
+                </div>
+                <div class="text-right flex flex-col items-end space-y-2">
+                  <span class="font-bold">${fmtMoeda(c.valor)}</span>
+                  <div class="flex space-x-2 no-print">
+                    <button type="button" onclick="abrirModalEdit('${c.id}')" class="text-xs bg-amber-500 hover:bg-amber-600 text-white font-semibold px-3 py-1 rounded shadow">
+                      ✏️ Editar
+                    </button>
+                    <button type="button" onclick="excluirCheque('${c.id}')" class="text-xs bg-red-600 hover:bg-red-700 text-white font-semibold px-3 py-1 rounded shadow">
+                      🗑️ Excluir
+                    </button>
+                  </div>
+                </div>
+              </div>`;
+          });
+
+          totalGeralEmpresa += somaStatus;
+          if (chequesStatus.length > 1) {
+            empHtml += `
+              <div class="text-right text-sm font-semibold pt-1 text-gray-600 dark:text-gray-400">
+                Subtotal (${st}s): ${fmtMoeda(somaStatus)}
+              </div>`;
+          }
+
+          empHtml += `</div></div>`;
+        });
+
+        empHtml += `
+          <div class="text-right text-base font-bold border-t border-gray-400 pt-2 mt-4 text-green-600 dark:text-green-400">
+            TOTAL GERAL (${emp}): ${fmtMoeda(totalGeralEmpresa)}
+          </div>
+        </div>`;
+
+        htmlFinal += empHtml;
+      });
+
+      container.innerHTML = htmlFinal;
+    }
+
+    function abrirModalEdit(id) {
+      const cheque = chequesGlobal.find(c => c.id === id);
+      if (!cheque) return;
+
+      bloquearCamposEdicao();
+
+      document.getElementById('editId').value = cheque.id;
+      document.getElementById('editEmpresa').value = cheque.empresa;
+      document.getElementById('editEmitente').value = cheque.emitente;
+      document.getElementById('editValor').value = fmtMoeda(cheque.valor).replace('R$', '').trim();
+      document.getElementById('editAgencia').value = cheque.agencia || '0244';
+      document.getElementById('editNumeroCheque').value = cheque.numero_cheque;
+      document.getElementById('editBanco').value = cheque.banco;
+      document.getElementById('editDataDeposito').value = cheque.data_deposito;
+      
+      const editStatus = document.getElementById('editStatus');
+      editStatus.value = cheque.status === 'Depositado' ? 'Buscar' : cheque.status;
+
+      document.getElementById('editDataBuscado').value = cheque.data_buscado || '';
+      document.getElementById('editDev1Alinea').value = cheque.dev1_alinea || '';
+      document.getElementById('editDev1Data').value = cheque.dev1_data || '';
+      document.getElementById('editDev2Alinea').value = cheque.dev2_alinea || '';
+      document.getElementById('editDev2Data').value = cheque.dev2_data || '';
+
+      toggleStatusCamposEdit();
+      document.getElementById('modalEditar').classList.remove('hidden');
+    }
+
+    function fecharModalEdit() {
+      document.getElementById('modalEditar').classList.add('hidden');
+      bloquearCamposEdicao();
+    }
+
+    async function salvarEdicao(e) {
+      e.preventDefault();
+      const id = document.getElementById('editId').value;
+      const valorTexto = document.getElementById('editValor').value.replace(/\./g, '').replace(',', '.');
+
+      const dadosAtualizados = {
+        empresa: document.getElementById('editEmpresa').value,
+        emitente: document.getElementById('editEmitente').value,
+        valor: parseFloat(valorTexto),
+        agencia: document.getElementById('editAgencia').value,
+        numero_cheque: document.getElementById('editNumeroCheque').value,
+        banco: document.getElementById('editBanco').value,
+        data_deposito: document.getElementById('editDataDeposito').value,
+        status: document.getElementById('editStatus').value,
+        data_buscado: document.getElementById('editDataBuscado').value || null,
+        dev1_alinea: document.getElementById('editDev1Alinea').value || null,
+        dev1_data: document.getElementById('editDev1Data').value || null,
+        dev2_alinea: document.getElementById('editDev2Alinea').value || null,
+        dev2_data: document.getElementById('editDev2Data').value || null,
+      };
+
+      const { error } = await supabaseClient.from('cheques').update(dadosAtualizados).eq('id', id);
+
+      if (error) {
+        showToast("Erro ao atualizar cheque: " + error.message);
+      } else {
+        showToast("Cheque atualizado com sucesso!");
+        fecharModalEdit();
+        gerarRelatorio();
+      }
+    }
+
+    async function excluirCheque(id) {
+      const cheque = chequesGlobal.find(c => c.id === id);
+      const confirmacao = confirm(`Tem certeza que deseja excluir o cheque de ${cheque ? cheque.emitente : ''} no valor de ${cheque ? fmtMoeda(cheque.valor) : ''}?`);
+
+      if (!confirmacao) return;
+
+      const { error } = await supabaseClient.from('cheques').delete().eq('id', id);
+
+      if (error) {
+        showToast("Erro ao excluir cheque: " + error.message);
+      } else {
+        showToast("Cheque excluído com sucesso!");
+        gerarRelatorio();
+      }
+    }
+  </script>
+</body>
+</html>
